@@ -1,107 +1,58 @@
 import torch
-import pandas as pd
-import numpy as np
-import transformers
-import torchvision
-from torchvision import transforms
-from PIL import Image
-from skimage import io, transform
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from transformers import BertTokenizer
-
-import torch.nn.functional as F
-from transformers import BertModel
-import random
-import time
-import os
 import re
+import os
 
-# 预处理
+
+# ----------- TEXT CLEANING ------------
 def text_preprocessing(text):
-    """
-    - 删除实体@符号(如。“@united”)
-    — 纠正错误(如:'&amp;' '&')
-    @参数 text (str):要处理的字符串
-    @返回 text (Str):已处理的字符串
-    """
-    # 去除 '@name'
-    text = re.sub(r'(@.*?)[\s]', ' ', text)
-
-    #  替换'&amp;'成'&'
-    text = re.sub(r'&amp;', '&', text)
-
-    # 删除尾随空格
-    text = re.sub(r'\s+', ' ', text).strip()
-
+    text = re.sub(r'(@.*?)[\s]', ' ', text)     # remove @someone
+    text = re.sub(r'&amp;', '&', text)         # fix &amp;
+    text = re.sub(r'\s+', ' ', text).strip()   # remove extra spaces
     return text
 
 
+# ----------- DATASET CLASS ------------
 class FakeNewsDataset(Dataset):
 
     def __init__(self, df, root_dir, image_transform, tokenizer, MAX_LEN):
         """
-        参数:
-            csv_file (string):包含文本和图像名称的csv文件的路径
-            root_dir (string):目录
-            transform(可选):图像变换
+        IMPORTANT:
+        - image_transform is ignored (BERT only)
+        - root_dir is ignored (no images used)
         """
-        self.csv_data = df
-        self.root_dir = root_dir
-        self.image_transform = image_transform
-        self.tokenizer_bert = tokenizer
-        self.MAX_LEN = MAX_LEN
+
+        self.df = df
+        self.tokenizer = tokenizer
+        self.max_len = MAX_LEN
 
     def __len__(self):
-        return self.csv_data.shape[0]
-    
-    def pre_processing_BERT(self, sent):
+        return len(self.df)
 
-        # 创建空列表储存输出
-        input_ids = []
-        attention_mask = []
-        
-        encoded_sent = self.tokenizer_bert.encode_plus(
-            text=text_preprocessing(sent),  # 预处理
-            add_special_tokens=True,        # `[CLS]`&`[SEP]`
-            max_length=self.MAX_LEN,        # 截断/填充的最大长度
-            padding='max_length',           # 句子填充最大长度
-            # return_tensors='pt',          # 返回tensor
-            return_attention_mask=True,     # 返回attention mask
-            truncation=True
-            )
-        
-        input_ids = encoded_sent.get('input_ids')
-        attention_mask = encoded_sent.get('attention_mask')
-        
-        # 转换tensor
-        input_ids = torch.tensor(input_ids)
-        attention_mask = torch.tensor(attention_mask)
-        
-        return input_ids, attention_mask
-     
-        
+    def encode_text(self, text):
+        encoded = self.tokenizer.encode_plus(
+            text_preprocessing(text),
+            add_special_tokens=True,
+            max_length=self.max_len,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+        )
+        input_ids = torch.tensor(encoded["input_ids"])
+        mask = torch.tensor(encoded["attention_mask"])
+        return input_ids, mask
+
     def __getitem__(self, idx):
+        row = self.df.iloc[idx]
 
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
+        input_ids, att_mask = self.encode_text(row["post_text"])
 
-        # ---- CORRECTED PATH ----
-        img_name = os.path.join(self.root_dir, self.csv_data['image_id'][idx] + '.jpg')
+        label = 1 if row["label"] == "fake" else 0
+        label = torch.tensor(label, dtype=torch.float)
 
-        image = Image.open(img_name).convert("RGB")
-        image = self.image_transform(image)
-
-        text = self.csv_data['post_text'][idx]
-        tensor_input_id, tensor_input_mask = self.pre_processing_BERT(text)
-
-        label = self.csv_data['label'][idx]
-        label = 1 if label == 'fake' else 0
-        label = torch.tensor(label, dtype=torch.long)
-
-        sample = {
-            'image_id': image,
-            'BERT_ip': [tensor_input_id, tensor_input_mask],
-            'label': label
+        return {
+            "input_ids": input_ids,
+            "attention_mask": att_mask,
+            "label": label
         }
-
-        return sample

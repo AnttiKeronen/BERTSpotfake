@@ -2,8 +2,6 @@ import torch
 from torch.utils.data import Dataset
 from transformers import BertTokenizer
 import re
-import os
-
 
 # ----------- TEXT CLEANING ------------
 def text_preprocessing(text):
@@ -11,7 +9,6 @@ def text_preprocessing(text):
     text = re.sub(r'&amp;', '&', text)         # fix &amp;
     text = re.sub(r'\s+', ' ', text).strip()   # remove extra spaces
     return text
-
 
 # ----------- DATASET CLASS ------------
 class FakeNewsDataset(Dataset):
@@ -22,7 +19,6 @@ class FakeNewsDataset(Dataset):
         - image_transform is ignored (BERT only)
         - root_dir is ignored (no images used)
         """
-
         self.df = df
         self.tokenizer = tokenizer
         self.max_len = MAX_LEN
